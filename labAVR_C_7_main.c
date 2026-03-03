@@ -22,10 +22,20 @@
 #define BTN2 PINB6
 #define BTN3 PINB7
 
+#define Xacc 0x04 //Accelerometer X-axis on ADC4 (PINC4 / pin 27)
+#define Yacc 0x05 //Accelerometer Y-axis on ADC5 (PINC5 / pin 28)
+#define ACCELEROMETER_BASELINE 500 //Empirically determined baseline
+
+uint16_t abs16(int16_t x)
+{
+	if(x < 0) return -x;
+	return x;
+}
+
 void led_out(uint8_t x)
 {
-	PORTC = x;
-	PORTD = x;
+	PORTC = x & ( (1 << PINC0) | (1 << PINC1) );
+	PORTD = x & ( (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6) | (1 << PIND7) );
 }
 
 void salute()
@@ -47,7 +57,7 @@ void send_char(uint8_t c)
 /*
 	Send value as human readable decimal number string
 */
-void send_val_str(uint8_t val)
+void send_val_str(uint16_t val)
 {
 	send_char(val/100 + '0');
 	val %= 100;
@@ -57,9 +67,23 @@ void send_val_str(uint8_t val)
 	send_char('\n');
 }
 
+uint8_t buzzer_on = 0;
 ISR(TIMER0_COMPA_vect)
 {
-	PORTB = PORTB ^ (1 << PINB0); //Flip summer output bit
+	if(buzzer_on) {
+		PORTB = PORTB ^ (1 << PINB0); //Flip buzzer output bit
+	}
+}
+
+//Read Analog-to-Digital converter
+uint16_t read_adc(uint8_t analog_channel)
+{
+	ADMUX = (ADMUX & 0xf0) | (analog_channel & 0x0f); //Input Channel Selection
+	ADCSRA |= (1 << ADSC); //ADC Start Conversion
+	while(!(ADCSRA & (1 << ADIF))); //Loop until ADC conversion completes
+	uint16_t adc_value = ADCL; //Read ADC low byte
+	adc_value = adc_value | (ADCH << 8); //Read ADC high byte
+	return adc_value;
 }
 
 int main(void)
@@ -74,9 +98,7 @@ int main(void)
 	UBRR0 = 12; //Baude rate //6 = 9600, 12 = 4800, 25 = 2400
 	UCSR0B = (1 << TXEN0);
 	//init ADC (Analog Digital Converter)
-	ADMUX = (0 << REFS1) | (1 << REFS0) //Voltage Reference Selection: AV CC with external capacitor at AREF pin
-		| (1 << ADLAR) //ADC Left Adjust Result; So I don't have to deal with multibyte readings. 8-bit precision is probably good enough for my purpose
-		| 0x02; //Input Channel Selections; Potentiometer at ADC2
+	ADMUX = (0 << REFS1) | (1 << REFS0); //Voltage Reference Selection: AV CC with external capacitor at AREF pin
 	ADCSRA = (1 << ADEN) //ADC Control and Status Register A: ADC Enable
 		| (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // ADC Prescaler Select Bits: Division factor 128
 	//init Timer
@@ -91,13 +113,26 @@ int main(void)
 
 	while (1)
 	{
-		ADCSRA |= (1 << ADSC); //ADC Start Conversion
-		while(!(ADCSRA & (1 << ADIF))); //Loop until ADC conversion completes
-		uint8_t adc_value = ADCH; //Read ADC high byte
-		send_val_str(adc_value);
-		OCR0A = adc_value; //Change summer frequency
-		led_out(adc_value);
-		_delay_ms(1000);
+		uint16_t x_adc_value = read_adc(Xacc);
+		uint16_t y_adc_value = read_adc(Yacc);
+		uint16_t x_diff = abs16(x_adc_value - ACCELEROMETER_BASELINE);
+		uint16_t y_diff = abs16(y_adc_value - ACCELEROMETER_BASELINE);
+		uint8_t diff = 0;
+		//Send the more significant accelerometer reading over UART
+		if(x_diff > y_diff)
+		{
+			send_val_str(x_adc_value);
+			diff = x_diff;
+		} else
+		{
+			send_val_str(y_adc_value);
+			diff = y_diff;
+		}
+		diff = diff / 10; //Scale for buzzer frequency range
+		buzzer_on = diff;
+		OCR0A = 10 - diff; //Change buzzer frequency
+		led_out(diff);
+		_delay_ms(500);
 
 	}
 }
