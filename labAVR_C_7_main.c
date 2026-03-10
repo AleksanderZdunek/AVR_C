@@ -3,7 +3,6 @@
  * Read data from accelerometer
  * Send accelerometer data over UART.
  * Generate a tone from accelerometer data.
- * WIP
  *
  * Created: 2026-03-02 15:58:13
  * Author : aleksander
@@ -103,8 +102,7 @@ int main(void)
 		| (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // ADC Prescaler Select Bits: Division factor 128
 	//init Timer
 	TCCR0A = (1 << WGM01); //Timer/Counter Control Register A, Waveform Generator Mode: CTC (Clear timer on match)
-	//TCCR0B = (1 << CS02) | (0 << CS01) | (1 << CS00); //Timer/Counter Control Register B clock selection bits: clk_io/1024
-	TCCR0B = (1 << CS02) | (0 << CS01) | (0 << CS00); //clk_io/256
+	TCCR0B = 0x04; //CS0[2:0]: 0 = timer stopped, 1 = no prescaling, 2 = clk_io/8, 3 = clk_io/64, 4 = clk_io/256, 5 = clk_io/1024
 	TIMSK0 = (1 << OCIE0A); //Timer/Counter Interrupt Mask Register: Timer/Counter0 Output Compare Match A Interrupt Enable
 	OCR0A = 255; //Clear Timer on Match value
 
